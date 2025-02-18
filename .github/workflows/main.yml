@@ -116,7 +116,7 @@ jobs:
 
             console.log("No type setting comments found. Settigng type to patch")
             setOutput('type', 'patch')
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Push version tag
