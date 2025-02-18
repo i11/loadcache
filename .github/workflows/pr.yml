@@ -1,0 +1,55 @@
+name: pr
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - "./**/*.md"
+      - .gitignore
+
+env:
+  GO_VERSION: ~1.24
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -buildvcs=false
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify go.mod integrity
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod
+          go mod verify
+
+      - name: Run GolangCI-Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60
+          args: --timeout=5m
+
+      - name: Run Tests
+        run: go test -race -cover -coverprofile=coverage -covermode=atomic -v ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage

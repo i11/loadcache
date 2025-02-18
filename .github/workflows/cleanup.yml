@@ -1,0 +1,14 @@
+name: clear cache
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 1 * *"
+
+permissions:
+  actions: write
+
+jobs:
+  clear-cache:
+    permissions:
+      actions: write
+    uses: interactio/backend-workflows/.github/workflows/cleanup-workflow-cache.yml@main

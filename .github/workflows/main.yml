@@ -1,0 +1,129 @@
+name: main
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New library version'
+        required: true
+        default: 'v0.1.0'
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - "./**/*.md"
+      - .gitignore
+
+env:
+  GO_VERSION: ~1.24
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    name: Bump version
+    steps:
+      - id: set_type
+        name: Set type
+        if: github.event.inputs.version == ''
+        uses: actions/github-script@v6
+        with:
+          script: |
+            console.log("Looking for possible PR comments")
+
+            const os = require("os")
+            const fs = require("fs")
+
+            const setOutput = (key, value) => {
+              // Temporary hack until core actions library catches up with github new recommendations
+              const output = process.env['GITHUB_OUTPUT']
+              fs.appendFileSync(output, `${key}=${value}${os.EOL}`)
+            }
+
+            const scanForType = (comment) => {
+              console.log(comment)
+              if (comment.includes('!major')) {
+                console.log('Found major comment. Setting type and returnning.')
+                return 'major'
+                return
+              } else if (comment.includes('!minor')) {
+                console.log('Found minor comment. Setting type and returnning.')
+                return 'minor'
+              }
+              return undefined
+            }
+
+            merge_commit_found = context.payload.head_commit.message.match(/Merge pull request #([0-9]+)/)
+            squash_commit_found = context.payload.head_commit.message.match(/\(#([0-9]+)\)$/)
+            merge_commit_pull_number = (merge_commit_found && merge_commit_found.length == 2) ? parseInt(merge_commit_found[1]) : undefined
+            squash_commit_pull_number = (squash_commit_found && squash_commit_found.length == 2) ? parseInt(squash_commit_found[1]) : undefined
+            pull_number = merge_commit_pull_number || squash_commit_pull_number
+
+            if (pull_number) {
+              const comments = []
+
+              // Look for the initial comment
+              const pull = await github.rest.pulls.get({
+                repo: context.repo.repo,
+                owner: context.repo.owner,
+                pull_number: pull_number,
+              })
+              if (pull.data && pull.data.body) {
+                comments.push(pull.data)
+              }
+
+              // Look for review comments
+              const reviews = await github.rest.pulls.listReviews({
+                repo: context.repo.repo,
+                owner: context.repo.owner,
+                pull_number: pull_number,
+              })
+              for (const comment of reviews.data) {
+                comments.push(comment)
+              }
+
+              const review_comments = await github.rest.pulls.listReviewComments({
+                repo: context.repo.repo,
+                owner: context.repo.owner,
+                pull_number: pull_number,
+              })
+              for (const comment of review_comments.data) {
+                comments.push(comment)
+              }
+
+              // Look for the ordinary comments
+              const issue_comments = await github.rest.issues.listComments({
+                repo: context.repo.repo,
+                owner: context.repo.owner,
+                issue_number: pull_number,
+              });
+              for (const comment of review_comments.data) {
+                comments.push(comment)
+              }
+
+              for (const comment of comments) {
+                const type = scanForType(comment.body)
+                if (type) {
+                  console.log('Setting output type', type)
+                  setOutput('type', type)
+                  return
+                }
+              }
+            }
+
+            console.log("No type setting comments found. Settigng type to patch")
+            setOutput('type', 'patch')
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Push version tag
+        run: |
+          git config --local user.name github-actions
+          git config --local user.email github-actions@github.com
+          if [ "x${{ github.event.inputs.version }}" == "x" ]; then
+            bash .github/version.sh -t ${{ steps.set_type.outputs.type }}
+          else
+            bash .github/version.sh -v ${{ github.event.inputs.version }}
+          fi
